@@ -69,6 +69,25 @@
         <p id="upload-error" class="form-error" role="alert" hidden></p>
       </section>
 
+      <section class="admin-card no-print" aria-labelledby="roster-title">
+        <h2 id="roster-title">Athlete roster</h2>
+        <p>Upload the Vald athlete roster CSV to filter by org and team and to show athletes who did not test (DNT). Only names, org (Category 1) and team (Group 1) are used — the roster stays in your browser and is never sent anywhere.</p>
+
+        <div id="roster-dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload an athlete roster CSV file">
+          <p><strong>Drop a roster CSV here</strong><br>or</p>
+          <label class="btn" for="roster-file-input">Choose a roster CSV</label>
+          <input id="roster-file-input" type="file" accept=".csv,text/csv" hidden>
+          <p class="note" id="roster-status">No roster loaded. Reports show tested athletes only.</p>
+        </div>
+
+        <div class="admin-actions">
+          <button id="roster-refresh-btn" class="btn btn-ghost" type="button">Refresh roster</button>
+          <button id="clear-roster-btn" class="btn btn-ghost" type="button" disabled>Clear roster</button>
+        </div>
+        <p class="note">Refresh uploads a newer roster export — it replaces the roster in this browser session and repopulates the org, team and athlete filters. The roster is not saved on the site; upload it again next time you open this page.</p>
+        <p id="roster-error" class="form-error" role="alert" hidden></p>
+      </section>
+
       <section id="filters" class="admin-card no-print" aria-labelledby="filters-title" hidden>
         <h2 id="filters-title">Filters</h2>
         <div class="filters-grid">
@@ -86,6 +105,22 @@
             <p id="exercise-note" class="note"></p>
           </div>
 
+          <div class="filter-group">
+            <label for="org-select">Org</label>
+            <select id="org-select"></select>
+            <label for="team-select">Team</label>
+            <select id="team-select"></select>
+            <p id="roster-filter-note" class="note">Load an athlete roster to filter by org and team.</p>
+          </div>
+
+          <div class="filter-group">
+            <span class="filter-heading">Report options</span>
+            <label class="toggle-row"><input id="show-dnt-toggle" type="checkbox" disabled> Show athletes with no tests (DNT)</label>
+            <label class="toggle-row"><input id="show-teamavg-row" type="checkbox" checked> Show team average row</label>
+            <label class="toggle-row"><input id="per-team-avg" type="checkbox" disabled> Show one average row per team</label>
+            <p class="note">Team averages use the same filtered dates, exercise and athletes as the table. DNT athletes are never counted as zero. Per-team averages need a loaded roster.</p>
+          </div>
+
           <div class="filter-group filter-athletes">
             <label for="athlete-search">Athletes</label>
             <input id="athlete-search" type="search" placeholder="Search athletes…" autocomplete="off">
@@ -95,13 +130,18 @@
               <span id="athlete-count" class="note"></span>
             </div>
             <div id="athlete-list" class="athlete-list" role="group" aria-label="Athletes"></div>
-            <p class="note">Groups: this export has no team/group column, so there is no group filter. Use the athlete checklist to build any group you want — select the athletes, print, then change the selection for the next group.</p>
+            <p class="note">Athletes marked “(no tests)” are on the roster but have no results in the loaded export. Use the checklist to build any group you want — select the athletes, print, then change the selection for the next group.</p>
           </div>
+        </div>
+
+        <div class="admin-actions view-toggle" role="group" aria-label="Report view">
+          <button id="view-table-btn" class="btn btn-ghost view-btn active" type="button" aria-pressed="true">Table</button>
+          <button id="view-analytics-btn" class="btn btn-ghost view-btn" type="button" aria-pressed="false">Analytics</button>
         </div>
 
         <div class="admin-actions">
           <button id="print-btn" class="btn" type="button">Export to PDF</button>
-          <p class="note print-hint">Export uses your browser’s print dialog — choose “Save as PDF”. The PDF shows the report only: title, exercise, dates, team average and the table.</p>
+          <p class="note print-hint">Export uses your browser’s print dialog — choose “Save as PDF”. The PDF shows whichever view is active (table or analytics): title, exercise, dates, team average and the report.</p>
         </div>
       </section>
 
@@ -118,12 +158,46 @@
           <table id="report-table">
             <thead id="report-thead"></thead>
             <tbody id="report-tbody"></tbody>
+            <tfoot id="report-tfoot"></tfoot>
           </table>
         </div>
         <div class="report-foot">
           <p id="report-notes"></p>
           <p class="report-footnote">Delta = (most recent − first) ÷ first × 100, within the selected dates. Colour: red ≤ −8% or ≥ +10%, amber −8% to −1%, green +1% to +9% — large swings are flagged red either way, as in the target sheet. Duplicate trials on the same date are averaged. Values are shown as recorded in the export; check the source file for any trial you want to verify.</p>
           <p class="report-footnote" id="report-source"></p>
+        </div>
+      </section>
+
+      <!-- Analytics view (same data and filters as the table) -->
+      <section id="analytics-area" aria-labelledby="analytics-title" hidden>
+        <div class="report-head">
+          <p class="report-brand">Starting Block Fitness — Force-Plate Testing</p>
+          <h2 id="analytics-title">Analytics</h2>
+          <p id="analytics-meta" class="report-meta"></p>
+        </div>
+
+        <div class="chart-card">
+          <h3>Trend over time</h3>
+          <p id="trend-sub" class="chart-sub"></p>
+          <div id="trend-chart" class="chart"></div>
+          <div id="trend-legend" class="legend"></div>
+        </div>
+
+        <div class="chart-card">
+          <h3>Athlete vs team</h3>
+          <p id="vsteam-sub" class="chart-sub"></p>
+          <div id="vsteam-chart" class="chart"></div>
+        </div>
+
+        <div class="chart-card">
+          <h3>Distribution / ranking</h3>
+          <p id="ranking-sub" class="chart-sub"></p>
+          <div id="ranking-chart" class="chart"></div>
+        </div>
+
+        <div class="report-foot">
+          <p class="report-footnote">All charts use the same filtered dates, exercise, org/team and athletes as the table. Averages count only athletes with a value on that date — DNT is never counted as zero. Delta = (most recent − first) ÷ first × 100, within the selected dates. Duplicate trials on the same date are averaged.</p>
+          <p class="report-footnote" id="analytics-source"></p>
         </div>
       </section>
 

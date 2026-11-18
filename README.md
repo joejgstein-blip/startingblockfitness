@@ -25,6 +25,41 @@ exercise, and athletes (multi-select). Export to PDF is via the print
 stylesheet + `window.print()` — choose “Save as PDF” in the print dialog.
 No spreadsheet is generated and no file leaves the browser.
 
+- **Athlete roster (optional but recommended):** upload the Vald athlete
+  roster CSV in the “Athlete roster” section. It adds Org (Category 1)
+  and Team (Group 1) filters — team options narrow to the selected org —
+  and roster athletes with no tests in the selected window show as DNT
+  (toggle “Show athletes with no tests (DNT)”, on by default once a
+  roster is loaded). **Refresh roster** re-opens the file picker to
+  upload a newer export; it replaces the roster in the browser session
+  and repopulates all filters. The roster is in-memory only: it is never
+  sent to a server, never saved on the site, and must be re-uploaded each
+  time the page is opened.
+- **Privacy:** only given-name, family-name, Category 1 and Group 1 are
+  read from the roster. Date of birth, email, vald-id, weight/height and
+  all other roster columns are never read or stored, and the roster CSV
+  must never be committed to the repo. The sample data uses de-identified
+  Demo A–E athletes only.
+- **Team averages:** the header Team Avg always reflects the currently
+  filtered set (dates + exercise + org/team + selected athletes) and says
+  so in its label. “Show team average row” (on by default) adds a Team
+  Avg row at the bottom of the table — mean per date column plus the
+  overall personal-average mean. “Show one average row per team” adds a
+  separate average row per roster team in the filtered org (one row when
+  a single team is selected). Averages count only athletes with a value
+  on that date; DNT is never counted as zero. Average rows are included
+  in the PDF/print output.
+- **Analytics view:** a Table | Analytics toggle above the report. Both
+  views use the same uploaded test CSV + roster + current filters.
+  Analytics has three inline-SVG charts (no chart library, no CDN):
+  (1) trend over time — team average per test date, with up to 5
+  selected athletes overlaid; (2) athlete vs team — each athlete’s
+  personal average against the team average, with the difference shown;
+  (3) distribution / ranking — athletes ranked by personal average with
+  the team average marked as a dashed reference line. Every chart is
+  labelled with the exercise, dates and what “team” means (filtered
+  org/team). Export to PDF prints whichever view is active.
+
 - **Set the passcode first:** edit `ADMIN_PASSCODE` in `admin.js`
   (currently the placeholder `SET-YOUR-PASSCODE-HERE`). Until it is set,
   the gate shows a setup warning and will not unlock.
@@ -41,8 +76,10 @@ No spreadsheet is generated and no file leaves the browser.
   removed). The full athlete CSV is never bundled with the site.
 - **Known open questions:** asymmetry sign convention (“L” read as
   negative), Jump Height Flight Time vs Imp-Mom, duplicate-trial
-  averaging (currently averaged), roster/DNT handling (tested athletes
-  only for now), and group filtering (the export has no group column).
+  averaging (currently averaged). Roster/DNT handling is now implemented
+  via the roster upload; Category 2 / Group 2 are almost entirely blank
+  in the 9/30 export and are not used, and the test export itself has no
+  group column, so the roster is the only source of org/team.
 
 ## Content still to confirm
 

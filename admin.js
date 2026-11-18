@@ -82,7 +82,9 @@ var ADMIN_PASSCODE = 'kevinisablock';
   }
 
   function cleanName(raw) {
-    return (raw || '').trim().replace(/\s+/g, ' ');
+    // Strip BOM / surrounding quotes (CSV exports), trim, collapse whitespace.
+    // Handles "Nala Annes " (trailing space) and "Tommy  Corwin" (double space).
+    return (raw || '').replace(/\uFEFF/g, '').trim().replace(/^"+|"+$/g, '').trim().replace(/\s+/g, ' ');
   }
 
   function splitName(full) {
@@ -157,28 +159,175 @@ var ADMIN_PASSCODE = 'kevinisablock';
     };
   }
 
+  /* ---------- Roster parsing ----------
+   * Only given-name, family-name, Category 1 (org) and Group 1 (team) are
+   * kept. Date of birth, email, vald-id, weight/height and all other roster
+   * columns are deliberately NOT read or stored. Roster data lives only in
+   * the browser session (in-memory) — never sent anywhere, never persisted.
+   * Blank org/team become "Unassigned". Category 2 / Group 2 are almost
+   * entirely blank in the 9/30 export and are not used. */
+  var UNASSIGNED = 'Unassigned';
+
+  function rosterExportDate(fileName) {
+    var m = String(fileName || '').match(/(\d{4})[-_](\d{2})[-_](\d{2})/);
+    return m ? m[1] + '-' + m[2] + '-' + m[3] : null;
+  }
+
+  function parseRoster(parsed, fileName) {
+    var athletes = {}; // normalized full name -> { first, last, full, org, team }
+    var orgCounts = {}, teamCounts = {}, orgTeams = {};
+    var duplicates = 0, skipped = 0;
+    parsed.rows.forEach(function (row) {
+      var first = cleanName(row['given-name']);
+      var last = cleanName(row['family-name']);
+      if (!first && !last) { skipped++; return; }
+      var full = cleanName(first + ' ' + last);
+      if (!full) { skipped++; return; }
+      if (athletes[full]) { duplicates++; return; }
+      var org = (row['Category 1'] || '').trim() || UNASSIGNED;
+      var team = (row['Group 1'] || '').trim() || UNASSIGNED;
+      athletes[full] = { first: first, last: last, full: full, org: org, team: team };
+      orgCounts[org] = (orgCounts[org] || 0) + 1;
+      teamCounts[team] = (teamCounts[team] || 0) + 1;
+      if (!orgTeams[org]) orgTeams[org] = {};
+      orgTeams[org][team] = (orgTeams[org][team] || 0) + 1;
+    });
+    var list = Object.keys(athletes).sort(function (a, b) {
+      var A = athletes[a], B = athletes[b];
+      return (A.last + A.first).localeCompare(B.last + B.first);
+    });
+    return {
+      athletes: athletes, list: list, fileName: fileName || 'roster file',
+      exportDate: rosterExportDate(fileName),
+      total: list.length, orgCounts: orgCounts, teamCounts: teamCounts,
+      orgTeams: orgTeams, duplicates: duplicates, skipped: skipped
+    };
+  }
+
+  /* Names in the test export that have no roster entry (should be 0 for the
+   * 9/30 files; surfaced in the UI status area, never silently dropped). */
+  function matchRoster(dataset, roster) {
+    var unmatched = [], matched = 0;
+    Object.keys(dataset.athletes).forEach(function (name) {
+      if (roster.athletes[name]) matched++;
+      else unmatched.push(name);
+    });
+    var untested = roster.list.filter(function (name) { return !dataset.athletes[name]; });
+    return { matched: matched, unmatched: unmatched.sort(), untestedCount: untested.length };
+  }
+
+  /* Mean per date column over athletes with a value that date only (DNT is
+   * never counted as zero), plus the mean of personal averages. */
+  function computeAvgRow(rows, dates) {
+    var values = dates.map(function (d, i) {
+      var vals = rows.map(function (r) { return r.values[i]; }).filter(function (v) { return v != null; });
+      return mean(vals);
+    });
+    var overall = mean(rows.map(function (r) { return r.personalAvg; }).filter(function (v) { return v != null; }));
+    return { values: values, overall: overall, n: rows.length };
+  }
+
+  function computePerTeamRows(rows, dates, roster) {
+    var byTeam = {};
+    rows.forEach(function (r) {
+      var team = (roster.athletes[r.name] || {}).team || UNASSIGNED;
+      if (!byTeam[team]) byTeam[team] = [];
+      byTeam[team].push(r);
+    });
+    return Object.keys(byTeam).sort().map(function (team) {
+      var avg = computeAvgRow(byTeam[team], dates);
+      return { team: team, values: avg.values, overall: avg.overall, n: byTeam[team].length };
+    });
+  }
+
+  /* ---------- Analytics data (pure — testable in Node) ----------
+   * Same filtered report in, chart-ready data out. Trend values are the
+   * table's per-date team averages; athlete-vs-team diffs are personal
+   * average minus the (filtered) team average; ranking is by personal
+   * average, descending. DNT rows are excluded everywhere — averages are
+   * over athletes with a value only, never counting DNT as zero. */
+  function buildAnalyticsData(report, maxOverlay) {
+    var tested = report.rows.filter(function (r) { return !r.isDNT; });
+    var trend = {
+      dates: report.dates,
+      teamValues: report.teamAvgRow ? report.teamAvgRow.values.slice()
+        : report.dates.map(function () { return null; }),
+      athletes: tested.slice(0, maxOverlay || 5).map(function (r) {
+        return { name: r.name, values: r.values.slice() };
+      }),
+      overlayTotal: tested.length
+    };
+    var vsTeam = tested.map(function (r) {
+      return {
+        name: r.name, first: r.first, last: r.last,
+        personalAvg: r.personalAvg, teamAvg: report.teamAvg,
+        diff: report.teamAvg == null ? null : r.personalAvg - report.teamAvg
+      };
+    });
+    var ranking = tested.slice().sort(function (a, b) { return b.personalAvg - a.personalAvg; })
+      .map(function (r) { return { name: r.name, first: r.first, last: r.last, personalAvg: r.personalAvg }; });
+    return { trend: trend, vsTeam: vsTeam, ranking: ranking, teamAvg: report.teamAvg };
+  }
+
   /* Pivot one exercise for a date window + athlete selection. */
-  function pivotReport(dataset, exerciseId, startISO, endISO, selectedNames) {
+  function pivotReport(dataset, exerciseId, startISO, endISO, selectedNames, opts) {
     var ex = EXERCISES.filter(function (e) { return e.id === exerciseId; })[0];
     var dates = dataset.dates.filter(function (d) {
       return (!startISO || d >= startISO) && (!endISO || d <= endISO);
     });
-    var names = Object.keys(dataset.athletes).sort(function (a, b) {
-      var A = dataset.athletes[a], B = dataset.athletes[b];
-      return (A.last + A.first).localeCompare(B.last + B.first);
-    });
+    var opts2 = opts || {};
+    var roster = opts2.roster || null;
+    var org = opts2.org || '';
+    var team = opts2.team || '';
+    var showDNT = !!opts2.showDNT;
+    var perTeam = !!(roster && opts2.perTeam);
+    // Candidate names: roster athletes in the selected org/team when a roster
+    // is loaded, otherwise the tested athletes from the CSV.
+    var names;
+    if (roster) {
+      names = roster.list.filter(function (n) {
+        var r = roster.athletes[n];
+        return (!org || r.org === org) && (!team || r.team === team);
+      });
+    } else {
+      names = Object.keys(dataset.athletes).sort(function (a, b) {
+        var A = dataset.athletes[a], B = dataset.athletes[b];
+        return (A.last + A.first).localeCompare(B.last + B.first);
+      });
+    }
     if (selectedNames && selectedNames.length) {
       names = names.filter(function (n) { return selectedNames.indexOf(n) !== -1; });
     }
     var rows = [];
+    var dntCount = 0;
     names.forEach(function (name) {
       var a = dataset.athletes[name];
+      var firstName, lastName, rOrg, rTeam;
+      if (a) { firstName = a.first; lastName = a.last; }
+      else if (roster && roster.athletes[name]) {
+        firstName = roster.athletes[name].first; lastName = roster.athletes[name].last;
+      } else { var sp = splitName(name); firstName = sp.first; lastName = sp.last; }
+      if (roster && roster.athletes[name]) { rOrg = roster.athletes[name].org; rTeam = roster.athletes[name].team; }
       var valuesByDate = dates.map(function (d) {
+        if (!a) return null;
         var vals = (a.byDate[d] || {})[exerciseId];
         return vals && vals.length ? mean(vals) : null;
       });
       var present = valuesByDate.filter(function (v) { return v != null; });
-      if (!present.length) return; // tested athletes only, in this window
+      if (!present.length) {
+        // No tests in this window. With a roster + DNT on, show the athlete
+        // as DNT instead of dropping them. Without a roster, keep the old
+        // behaviour (tested athletes only).
+        if (roster && showDNT) {
+          dntCount++;
+          rows.push({
+            name: name, first: firstName, last: lastName, org: rOrg, team: rTeam,
+            values: valuesByDate, personalAvg: null,
+            mostRecent: null, delta: null, deltaPoints: null, isDNT: true
+          });
+        }
+        return;
+      }
       var personalAvg = mean(present);
       var first = present[0];
       var mostRecent = present[present.length - 1];
@@ -191,13 +340,22 @@ var ADMIN_PASSCODE = 'kevinisablock';
         }
       }
       rows.push({
-        name: name, first: a.first, last: a.last,
+        name: name, first: firstName, last: lastName, org: rOrg, team: rTeam,
         values: valuesByDate, personalAvg: personalAvg,
-        mostRecent: mostRecent, delta: delta, deltaPoints: deltaPoints
+        mostRecent: mostRecent, delta: delta, deltaPoints: deltaPoints, isDNT: false
       });
     });
-    var teamAvg = mean(rows.map(function (r) { return r.personalAvg; }));
-    return { exercise: ex, dates: dates, rows: rows, teamAvg: teamAvg };
+    var testedRows = rows.filter(function (r) { return !r.isDNT; });
+    // Header Team Avg: mean of personal averages over the currently filtered
+    // set only (DNT rows excluded — they have no average).
+    var teamAvg = mean(testedRows.map(function (r) { return r.personalAvg; }));
+    var teamAvgRow = testedRows.length ? computeAvgRow(testedRows, dates) : null;
+    var perTeamRows = perTeam ? computePerTeamRows(testedRows, dates, roster) : [];
+    return {
+      exercise: ex, dates: dates, rows: rows, teamAvg: teamAvg,
+      teamAvgRow: teamAvgRow, perTeamRows: perTeamRows,
+      dntCount: dntCount, testedCount: testedRows.length
+    };
   }
 
   function deltaClass(report, row) {
@@ -226,7 +384,86 @@ var ADMIN_PASSCODE = 'kevinisablock';
   var isBrowser = typeof document !== 'undefined' && typeof window !== 'undefined';
 
   if (isBrowser) {
-    var state = { dataset: null, selected: null, sample: false };
+    var state = {
+      dataset: null, selected: null, sample: false,
+      roster: null, rosterFileName: null, rosterRefreshedAt: null,
+      org: '', team: '', showDNT: false,
+      showTeamAvgRow: true, perTeamAvg: false,
+      view: 'table' // 'table' | 'analytics'
+    };
+
+    /* Candidate athlete names for the current org/team filter. Roster names
+     * when a roster is loaded, otherwise the tested athletes from the CSV. */
+    function filteredBaseNames() {
+      if (!state.dataset) return [];
+      if (!state.roster) {
+        return Object.keys(state.dataset.athletes).sort(function (a, b) {
+          var A = state.dataset.athletes[a], B = state.dataset.athletes[b];
+          return (A.last + A.first).localeCompare(B.last + B.first);
+        });
+      }
+      return state.roster.list.filter(function (n) {
+        var r = state.roster.athletes[n];
+        return (!state.org || r.org === state.org) && (!state.team || r.team === state.team);
+      });
+    }
+
+    function refreshOrgTeamOptions() {
+      var orgSel = $('org-select'), teamSel = $('team-select');
+      var prevOrg = state.org, prevTeam = state.team;
+      orgSel.innerHTML = '';
+      teamSel.innerHTML = '';
+      function addOpt(sel, value, label) {
+        var opt = document.createElement('option');
+        opt.value = value; opt.textContent = label;
+        sel.appendChild(opt);
+      }
+      addOpt(orgSel, '', 'All orgs');
+      addOpt(teamSel, '', 'All teams');
+      if (state.roster) {
+        Object.keys(state.roster.orgCounts).sort().forEach(function (org) {
+          addOpt(orgSel, org, org + ' (' + state.roster.orgCounts[org] + ')');
+        });
+        var teams = state.roster.orgTeams[prevOrg] || state.roster.teamCounts;
+        Object.keys(teams).sort().forEach(function (team) {
+          addOpt(teamSel, team, team + ' (' + teams[team] + ')');
+        });
+      }
+      orgSel.value = state.roster && state.roster.orgCounts[prevOrg] ? prevOrg : '';
+      state.org = orgSel.value;
+      var teamsNow = state.roster ? (state.roster.orgTeams[state.org] || state.roster.teamCounts) : {};
+      teamSel.value = state.roster && teamsNow[prevTeam] ? prevTeam : '';
+      state.team = teamSel.value;
+      var dnt = $('show-dnt-toggle');
+      dnt.disabled = !state.roster;
+      dnt.checked = !!state.roster && state.showDNT;
+      var perTeam = $('per-team-avg');
+      perTeam.disabled = !state.roster;
+      perTeam.checked = !!state.roster && state.perTeamAvg;
+      $('roster-filter-note').textContent = state.roster
+        ? 'Roster: ' + state.roster.total + ' athletes. Team options narrow to the selected org.'
+        : 'Load an athlete roster to filter by org and team.';
+    }
+
+    function updateRosterStatus() {
+      var el = $('roster-status');
+      if (!state.roster) {
+        el.textContent = 'No roster loaded. Reports show tested athletes only.';
+        return;
+      }
+      var r = state.roster;
+      var orgBits = Object.keys(r.orgCounts).sort().map(function (o) { return o + ' ' + r.orgCounts[o]; }).join(', ');
+      el.textContent = 'Loaded: ' + r.fileName +
+        (r.exportDate ? ' (export ' + r.exportDate + ')' : '') +
+        ' — ' + r.total + ' athletes. Orgs: ' + orgBits + '.' +
+        ' Last refreshed: ' + (state.rosterRefreshedAt || '—') + '.';
+      if (state.dataset) {
+        var m = matchRoster(state.dataset, r);
+        if (m.unmatched.length) {
+          el.textContent += ' Warning: ' + m.unmatched.length + ' tested name(s) not in the roster.';
+        }
+      }
+    }
 
     var $ = function (id) { return document.getElementById(id); };
 
@@ -283,10 +520,7 @@ var ADMIN_PASSCODE = 'kevinisablock';
       var list = $('athlete-list');
       list.innerHTML = '';
       var q = ($('athlete-search').value || '').toLowerCase();
-      var names = Object.keys(state.dataset.athletes).sort(function (a, b) {
-        var A = state.dataset.athletes[a], B = state.dataset.athletes[b];
-        return (A.last + A.first).localeCompare(B.last + B.first);
-      });
+      var names = filteredBaseNames();
       var shown = 0;
       names.forEach(function (name) {
         if (q && name.toLowerCase().indexOf(q) === -1) return;
@@ -303,7 +537,10 @@ var ADMIN_PASSCODE = 'kevinisablock';
           renderReport();
         });
         label.appendChild(cb);
-        label.appendChild(document.createTextNode(' ' + name));
+        var text = ' ' + name;
+        // Mark roster athletes with no tests in the loaded export.
+        if (state.roster && !state.dataset.athletes[name]) text += ' (no tests)';
+        label.appendChild(document.createTextNode(text));
         list.appendChild(label);
       });
       if (!shown) list.innerHTML = '<p class="note">No athletes match that search.</p>';
@@ -311,7 +548,7 @@ var ADMIN_PASSCODE = 'kevinisablock';
     }
 
     function updateAthleteCount() {
-      var total = Object.keys(state.dataset.athletes).length;
+      var total = filteredBaseNames().length;
       var sel = state.selected ? state.selected.length : total;
       $('athlete-count').textContent = sel + ' of ' + total + ' selected';
     }
@@ -323,31 +560,49 @@ var ADMIN_PASSCODE = 'kevinisablock';
       $('exercise-note').textContent = ex.note || (ex.available ? '' : ex.unavailableReason);
       if (!ex.available) {
         $('print-area').hidden = true;
+        $('analytics-area').hidden = true;
+        document.body.classList.remove('show-analytics');
         $('empty-state').hidden = false;
         $('empty-state').textContent = ex.label + ' is not available from this export. ' + ex.unavailableReason;
         return;
       }
-      var report = pivotReport(state.dataset, f.exerciseId, f.start, f.end, state.selected);
+      var report = pivotReport(state.dataset, f.exerciseId, f.start, f.end, state.selected, {
+        roster: state.roster, org: state.org, team: state.team,
+        showDNT: state.showDNT, perTeam: state.perTeamAvg
+      });
       var printArea = $('print-area');
       var emptyState = $('empty-state');
       if (!report.rows.length || !report.dates.length) {
         printArea.hidden = true;
+        $('analytics-area').hidden = true;
+        document.body.classList.remove('show-analytics');
         emptyState.hidden = false;
         emptyState.textContent = 'No athletes have ' + ex.label + ' results in the selected dates. Widen the date window or select more athletes.';
         return;
       }
       emptyState.hidden = true;
-      printArea.hidden = false;
 
+      // What the filtered set covers — the header Team Avg reflects this set
+      // only (date window + exercise + org/team + selected athletes), never
+      // the whole roster or the whole export.
+      var scopeBits = [];
+      if (state.roster) {
+        scopeBits.push(state.org || 'All orgs');
+        scopeBits.push(state.team || 'All teams');
+      }
+      var scopeLabel = scopeBits.length ? scopeBits.join(' — ') : 'All tested athletes';
       $('report-title').textContent = ex.label;
       $('report-subtitle').textContent = ex.subtitle + '  •  Unit: ' + ex.unit;
       var startLabel = report.dates[0], endLabel = report.dates[report.dates.length - 1];
       $('report-meta').textContent =
         'Testing dates: ' + formatDateShort(startLabel) + ' – ' + formatDateShort(endLabel) + '  •  ' +
-        report.rows.length + ' athlete' + (report.rows.length === 1 ? '' : 's') + '  •  ' +
+        scopeLabel + '  •  ' +
+        report.rows.length + ' athlete' + (report.rows.length === 1 ? '' : 's') +
+        (report.dntCount ? ' (' + report.dntCount + ' DNT)' : '') + '  •  ' +
         report.dates.length + ' test date' + (report.dates.length === 1 ? '' : 's');
       $('report-teamavg').textContent = 'Team Avg: ' + formatNum(report.teamAvg, ex.decimals) + ' ' + ex.unit +
-        '  (average of personal averages)';
+        '  (average of personal averages — ' + scopeLabel + ', ' +
+        report.testedCount + ' athlete' + (report.testedCount === 1 ? '' : 's') + ' with results)';
 
       var thead = $('report-thead');
       var trh = document.createElement('tr');
@@ -388,13 +643,256 @@ var ADMIN_PASSCODE = 'kevinisablock';
         tbody.appendChild(tr);
       });
 
-      $('report-notes').textContent = ex.asymmetry
-        ? 'Asymmetry is shown as a signed %: “L” values are read as negative and “R” as positive — this sign convention is unconfirmed, confirm with the trainer before sharing.'
-        : '';
+      // Team-average rows (footer). Per-date means count only athletes with
+      // a value that date — DNT is never counted as zero. Included in print.
+      var tfoot = $('report-tfoot');
+      tfoot.innerHTML = '';
+      function avgRowCells(label, avg) {
+        var tr = document.createElement('tr');
+        tr.className = 'avg-row';
+        var tdLabel = document.createElement('td');
+        tdLabel.colSpan = 2; tdLabel.textContent = label;
+        tr.appendChild(tdLabel);
+        avg.values.forEach(function (v) {
+          var td = document.createElement('td');
+          td.className = 'num'; td.textContent = v == null ? '—' : formatNum(v, ex.decimals);
+          tr.appendChild(td);
+        });
+        var tdOverall = document.createElement('td');
+        tdOverall.className = 'num'; tdOverall.textContent = avg.overall == null ? '—' : formatNum(avg.overall, ex.decimals);
+        tr.appendChild(tdOverall);
+        var tdDelta = document.createElement('td');
+        tdDelta.className = 'num'; tdDelta.textContent = '—';
+        tr.appendChild(tdDelta);
+        return tr;
+      }
+      if (state.showTeamAvgRow && report.teamAvgRow) {
+        tfoot.appendChild(avgRowCells('Team Avg (' + report.testedCount + ' athletes)', report.teamAvgRow));
+      }
+      if (state.perTeamAvg && state.roster) {
+        report.perTeamRows.forEach(function (pr) {
+          tfoot.appendChild(avgRowCells('Avg — ' + pr.team + ' (' + pr.n + ')', pr));
+        });
+      }
+
+      $('report-notes').textContent = (ex.asymmetry
+        ? 'Asymmetry is shown as a signed %: “L” values are read as negative and “R” as positive — this sign convention is unconfirmed, confirm with the trainer before sharing. '
+        : '') +
+        (state.roster && report.dntCount
+          ? 'DNT = athlete is on the roster for the selected org/team but did not test in the selected dates. '
+          : '');
       $('report-source').textContent = 'Source: ' + state.dataset.fileName +
         (state.sample ? ' (de-identified sample data)' : '') +
+        (state.roster ? '  •  Roster: ' + state.roster.fileName + ' (' + state.roster.total + ' athletes' +
+          (state.roster.exportDate ? ', export ' + state.roster.exportDate : '') + ')' : '') +
         '  •  Generated in your browser on ' + new Date().toLocaleDateString() +
         '  •  ' + state.dataset.rowCount + ' CSV rows; ' + state.dataset.excluded.nonCmj + ' non-CMJ row(s) excluded.';
+
+      // Show whichever view is active (table or analytics). Print follows
+      // the visible view — see the print stylesheet and body.show-analytics.
+      if (state.view === 'analytics') {
+        printArea.hidden = true;
+        $('analytics-area').hidden = false;
+        document.body.classList.add('show-analytics');
+        renderAnalytics(report, ex, scopeLabel, startLabel, endLabel);
+      } else {
+        printArea.hidden = false;
+        $('analytics-area').hidden = true;
+        document.body.classList.remove('show-analytics');
+      }
+    }
+
+    /* ---------- Analytics view (inline SVG, no chart library) ---------- */
+    var SVGNS = 'http://www.w3.org/2000/svg';
+    var ATHLETE_COLORS = ['#0e7a6b', '#b7791f', '#6b46c1', '#2b6cb0', '#718096'];
+
+    function svgEl(tag, attrs, parent) {
+      var el = document.createElementNS(SVGNS, tag);
+      Object.keys(attrs || {}).forEach(function (k) { el.setAttribute(k, attrs[k]); });
+      if (parent) parent.appendChild(el);
+      return el;
+    }
+    function svgText(parent, x, y, text, attrs) {
+      var t = svgEl('text', Object.assign({ x: x, y: y }, attrs || {}), parent);
+      t.textContent = text;
+      return t;
+    }
+    function linePath(pts) {
+      // pts: [{x, y} | null] — break the line across nulls (DNT / no test).
+      var d = '', pen = false;
+      pts.forEach(function (p) {
+        if (!p) { pen = false; return; }
+        d += (pen ? ' L' : ' M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
+        pen = true;
+      });
+      return d;
+    }
+    function axisTicks(min, max, count) {
+      var ticks = [], i;
+      for (i = 0; i <= count; i++) ticks.push(min + (max - min) * i / count);
+      return ticks;
+    }
+
+    function renderTrendChart(container, data, ex) {
+      container.innerHTML = '';
+      var dates = data.trend.dates;
+      var allVals = data.trend.teamValues.concat(
+        data.trend.athletes.reduce(function (acc, a) { return acc.concat(a.values); }, [])
+      ).filter(function (v) { return v != null; });
+      if (!allVals.length || !dates.length) {
+        container.innerHTML = '<p class="note">No values to chart in this window.</p>';
+        return;
+      }
+      var min = Math.min.apply(null, allVals), max = Math.max.apply(null, allVals);
+      var pad = (max - min) * 0.15 || 1;
+      min -= pad; max += pad;
+      var W = 760, H = 300, L = 58, R = 18, T = 18, B = 36;
+      var svg = svgEl('svg', {
+        viewBox: '0 0 ' + W + ' ' + H, class: 'chart-svg', role: 'img',
+        'aria-label': 'Line chart of team average per test date'
+      }, container);
+      var x = function (i) { return dates.length === 1 ? W / 2 : L + i * (W - L - R) / (dates.length - 1); };
+      var y = function (v) { return T + (1 - (v - min) / (max - min)) * (H - T - B); };
+      axisTicks(min, max, 4).forEach(function (t) {
+        svgEl('line', { x1: L, x2: W - R, y1: y(t), y2: y(t), stroke: '#e3e8ef', 'stroke-width': 1 }, svg);
+        svgText(svg, L - 8, y(t) + 4, t.toFixed(ex.decimals), { 'text-anchor': 'end', 'font-size': 11, fill: '#5a6a7d' });
+      });
+      dates.forEach(function (d, i) {
+        svgText(svg, x(i), H - 10, formatDateShort(d), { 'text-anchor': 'middle', 'font-size': 11, fill: '#5a6a7d' });
+      });
+      // Athlete overlays first (underneath), team line on top.
+      data.trend.athletes.forEach(function (a, ai) {
+        var pts = a.values.map(function (v, i) { return v == null ? null : { x: x(i), y: y(v) }; });
+        svgEl('path', { d: linePath(pts), fill: 'none', stroke: ATHLETE_COLORS[ai % ATHLETE_COLORS.length], 'stroke-width': 1.5 }, svg);
+        pts.forEach(function (p) {
+          if (p) svgEl('circle', { cx: p.x, cy: p.y, r: 3, fill: ATHLETE_COLORS[ai % ATHLETE_COLORS.length] }, svg);
+        });
+      });
+      var teamPts = data.trend.teamValues.map(function (v, i) { return v == null ? null : { x: x(i), y: y(v) }; });
+      svgEl('path', { d: linePath(teamPts), fill: 'none', stroke: '#0f2040', 'stroke-width': 2.5 }, svg);
+      teamPts.forEach(function (p) {
+        if (p) svgEl('circle', { cx: p.x, cy: p.y, r: 4, fill: '#0f2040' }, svg);
+      });
+      // Legend
+      var legend = $('trend-legend');
+      legend.innerHTML = '';
+      function legendItem(color, label) {
+        var s = document.createElement('span');
+        s.className = 'legend-item';
+        var sw = document.createElement('span');
+        sw.className = 'legend-swatch';
+        sw.style.background = color;
+        s.appendChild(sw);
+        s.appendChild(document.createTextNode(' ' + label));
+        legend.appendChild(s);
+      }
+      legendItem('#0f2040', 'Team average');
+      data.trend.athletes.forEach(function (a, ai) {
+        legendItem(ATHLETE_COLORS[ai % ATHLETE_COLORS.length], a.name);
+      });
+      if (data.trend.overlayTotal > data.trend.athletes.length) {
+        var note = document.createElement('span');
+        note.className = 'note';
+        note.textContent = 'Showing ' + data.trend.athletes.length + ' of ' + data.trend.overlayTotal +
+          ' athletes — narrow the athlete selection to compare specific athletes.';
+        legend.appendChild(note);
+      }
+    }
+
+    function renderVsTeamChart(container, data, ex) {
+      container.innerHTML = '';
+      var rows = data.vsTeam.slice().sort(function (a, b) { return (a.last + a.first).localeCompare(b.last + b.first); });
+      if (!rows.length || data.teamAvg == null) {
+        container.innerHTML = '<p class="note">No athletes to compare in this window.</p>';
+        return;
+      }
+      var vals = rows.map(function (r) { return r.personalAvg; }).concat([data.teamAvg]);
+      var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+      var pad = (max - min) * 0.15 || 1;
+      min -= pad; max += pad;
+      var rowH = 26, W = 760, L = 150, R = 90, T = 10, B = 30;
+      var H = T + rows.length * rowH + B;
+      var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'chart-svg', role: 'img', 'aria-label': 'Dot chart of personal averages vs team average' }, container);
+      var x = function (v) { return L + (v - min) / (max - min) * (W - L - R); };
+      axisTicks(min, max, 4).forEach(function (t) {
+        svgEl('line', { x1: x(t), x2: x(t), y1: T, y2: T + rows.length * rowH, stroke: '#e3e8ef', 'stroke-width': 1 }, svg);
+        svgText(svg, x(t), T + rows.length * rowH + 18, t.toFixed(ex.decimals), { 'text-anchor': 'middle', 'font-size': 11, fill: '#5a6a7d' });
+      });
+      // Team-average reference line.
+      svgEl('line', { x1: x(data.teamAvg), x2: x(data.teamAvg), y1: T, y2: T + rows.length * rowH, stroke: '#0f2040', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, svg);
+      rows.forEach(function (r, i) {
+        var cy = T + i * rowH + rowH / 2;
+        svgText(svg, L - 8, cy + 4, r.first + ' ' + r.last, { 'text-anchor': 'end', 'font-size': 12, fill: '#1a2332' });
+        svgEl('circle', { cx: x(r.personalAvg), cy: cy, r: 5, fill: '#0e7a6b' }, svg);
+        var diff = r.diff == null ? '—' : (r.diff > 0 ? '+' : '') + r.diff.toFixed(ex.decimals);
+        svgText(svg, W - R + 8, cy + 4, diff + ' ' + ex.unit, { 'font-size': 12, fill: r.diff != null && r.diff >= 0 ? '#137333' : '#7a271a', 'font-weight': 700 });
+      });
+      var cap = document.createElement('p');
+      cap.className = 'note';
+      cap.textContent = 'Dashed line = team average ' + data.teamAvg.toFixed(ex.decimals) + ' ' + ex.unit +
+        '. Difference = personal average minus team average.';
+      container.appendChild(cap);
+    }
+
+    function renderRankingChart(container, data, ex) {
+      container.innerHTML = '';
+      var rows = data.ranking;
+      if (!rows.length || data.teamAvg == null) {
+        container.innerHTML = '<p class="note">No athletes to rank in this window.</p>';
+        return;
+      }
+      var max = Math.max.apply(null, rows.map(function (r) { return r.personalAvg; }).concat([data.teamAvg]));
+      var rowH = 24, W = 760, L = 150, R = 60, T = 10, B = 30;
+      var H = T + rows.length * rowH + B;
+      var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'chart-svg', role: 'img', 'aria-label': 'Ranked bar chart of personal averages' }, container);
+      var x = function (v) { return L + v / (max * 1.05) * (W - L - R); };
+      axisTicks(0, max * 1.05, 4).forEach(function (t) {
+        svgEl('line', { x1: x(t), x2: x(t), y1: T, y2: T + rows.length * rowH, stroke: '#e3e8ef', 'stroke-width': 1 }, svg);
+        svgText(svg, x(t), T + rows.length * rowH + 18, t.toFixed(0), { 'text-anchor': 'middle', 'font-size': 11, fill: '#5a6a7d' });
+      });
+      svgEl('line', { x1: x(data.teamAvg), x2: x(data.teamAvg), y1: T, y2: T + rows.length * rowH, stroke: '#0f2040', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, svg);
+      rows.forEach(function (r, i) {
+        var y0 = T + i * rowH + 4;
+        svgText(svg, L - 8, y0 + 11, r.first + ' ' + r.last, { 'text-anchor': 'end', 'font-size': 12, fill: '#1a2332' });
+        svgEl('rect', { x: L, y: y0, width: Math.max(1, x(r.personalAvg) - L), height: 14, fill: '#0e7a6b', rx: 2 }, svg);
+        svgText(svg, x(r.personalAvg) + 6, y0 + 11, r.personalAvg.toFixed(ex.decimals), { 'font-size': 12, fill: '#1a2332' });
+      });
+      var cap = document.createElement('p');
+      cap.className = 'note';
+      cap.textContent = 'Ranked by personal average, highest first. Dashed line = team average ' +
+        data.teamAvg.toFixed(ex.decimals) + ' ' + ex.unit + '.';
+      container.appendChild(cap);
+    }
+
+    function renderAnalytics(report, ex, scopeLabel, startISO, endISO) {
+      var data = buildAnalyticsData(report, 5);
+      $('analytics-title').textContent = 'Analytics — ' + ex.label;
+      $('analytics-meta').textContent =
+        ex.subtitle + '  •  Unit: ' + ex.unit + '  •  ' +
+        'Testing dates: ' + formatDateShort(startISO) + ' – ' + formatDateShort(endISO) + '  •  ' +
+        scopeLabel + '  •  ' + data.vsTeam.length + ' athlete' + (data.vsTeam.length === 1 ? '' : 's') + ' with results' +
+        (report.dntCount ? ' (' + report.dntCount + ' DNT, not counted in averages)' : '') +
+        '  •  Team Avg: ' + (data.teamAvg == null ? '—' : data.teamAvg.toFixed(ex.decimals) + ' ' + ex.unit);
+      $('analytics-source').textContent = 'Source: ' + state.dataset.fileName +
+        (state.sample ? ' (de-identified sample data)' : '') +
+        (state.roster ? '  •  Roster: ' + state.roster.fileName + ' (' + state.roster.total + ' athletes)' : '') +
+        '  •  Generated in your browser on ' + new Date().toLocaleDateString() + '.';
+      $('trend-sub').textContent = 'Team average per test date' +
+        (data.trend.athletes.length ? ', with each selected athlete’s own values overlaid (up to 5).' : '.');
+      $('vsteam-sub').textContent = 'Each athlete’s personal average against the team average for this window.';
+      $('ranking-sub').textContent = 'Athletes ranked by personal average for this window.';
+      renderTrendChart($('trend-chart'), data, ex);
+      renderVsTeamChart($('vsteam-chart'), data, ex);
+      renderRankingChart($('ranking-chart'), data, ex);
+    }
+
+    function setView(view) {
+      state.view = view;
+      $('view-table-btn').classList.toggle('active', view === 'table');
+      $('view-analytics-btn').classList.toggle('active', view === 'analytics');
+      $('view-table-btn').setAttribute('aria-pressed', view === 'table' ? 'true' : 'false');
+      $('view-analytics-btn').setAttribute('aria-pressed', view === 'analytics' ? 'true' : 'false');
+      if (state.dataset) renderReport();
     }
 
     function loadDataset(parsed, fileName, isSample) {
@@ -422,8 +920,54 @@ var ADMIN_PASSCODE = 'kevinisablock';
       $('data-summary').textContent = 'Data loaded. Pick an exercise and adjust the filters — the report updates automatically.';
       $('filters').hidden = false;
       $('clear-btn').disabled = false;
+      refreshOrgTeamOptions();
+      updateRosterStatus();
       renderAthleteList();
       renderReport();
+    }
+
+    /* ---------- Roster upload / refresh ----------
+     * Replaces the in-memory roster and repopulates every filter. Roster
+     * data is never sent anywhere and never persisted — refresh simply
+     * loads a newer CSV file into the same in-memory slot. */
+    function loadRoster(parsed, fileName) {
+      var r = parseRoster(parsed, fileName);
+      if (!r.total) {
+        var err = $('roster-error');
+        err.textContent = 'Could not find any athletes in that roster file. Check it is a Vald athlete export with given-name / family-name columns.';
+        err.hidden = false;
+        return;
+      }
+      $('roster-error').hidden = true;
+      state.roster = r;
+      state.rosterFileName = fileName;
+      state.rosterRefreshedAt = new Date().toLocaleString();
+      state.org = ''; state.team = '';
+      state.selected = null;
+      // DNT rows default ON once a roster is loaded.
+      state.showDNT = true;
+      $('show-dnt-toggle').checked = true;
+      $('show-dnt-toggle').disabled = false;
+      $('per-team-avg').disabled = false;
+      $('clear-roster-btn').disabled = false;
+      updateRosterStatus();
+      refreshOrgTeamOptions();
+      if (state.dataset) {
+        renderAthleteList();
+        renderReport();
+      }
+    }
+
+    function loadRosterFile(file) {
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () { loadRoster(parseCSV(String(reader.result)), file.name); };
+      reader.onerror = function () {
+        var err = $('roster-error');
+        err.textContent = 'Could not read that roster file. Try choosing it again.';
+        err.hidden = false;
+      };
+      reader.readAsText(file);
     }
 
     function loadFile(file) {
@@ -468,9 +1012,61 @@ var ADMIN_PASSCODE = 'kevinisablock';
       $('clear-btn').disabled = true;
     });
 
+    // Roster wiring — refresh re-opens the file picker for a newer export.
+    $('roster-file-input').addEventListener('change', function (e) { loadRosterFile(e.target.files[0]); e.target.value = ''; });
+    var rdz = $('roster-dropzone');
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      rdz.addEventListener(ev, function (e) { e.preventDefault(); rdz.classList.add('drag-over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      rdz.addEventListener(ev, function (e) { e.preventDefault(); rdz.classList.remove('drag-over'); });
+    });
+    rdz.addEventListener('drop', function (e) {
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) loadRosterFile(e.dataTransfer.files[0]);
+    });
+    rdz.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('roster-file-input').click(); }
+    });
+    $('roster-refresh-btn').addEventListener('click', function () { $('roster-file-input').click(); });
+    $('clear-roster-btn').addEventListener('click', function () {
+      state.roster = null; state.rosterFileName = null; state.rosterRefreshedAt = null;
+      state.org = ''; state.team = ''; state.selected = null; state.showDNT = false; state.perTeamAvg = false;
+      $('roster-file-input').value = '';
+      $('clear-roster-btn').disabled = true;
+      $('per-team-avg').checked = false;
+      $('per-team-avg').disabled = true;
+      updateRosterStatus();
+      refreshOrgTeamOptions();
+      if (state.dataset) { renderAthleteList(); renderReport(); }
+    });
+
     // Filter wiring
     ['start-date', 'end-date'].forEach(function (id) {
       $(id).addEventListener('change', renderReport);
+    });
+    $('org-select').addEventListener('change', function () {
+      state.org = $('org-select').value;
+      state.team = '';
+      state.selected = null; // new filter set => start from "all in filter"
+      refreshOrgTeamOptions();
+      renderAthleteList(); renderReport();
+    });
+    $('team-select').addEventListener('change', function () {
+      state.team = $('team-select').value;
+      state.selected = null;
+      renderAthleteList(); renderReport();
+    });
+    $('show-dnt-toggle').addEventListener('change', function () {
+      state.showDNT = $('show-dnt-toggle').checked;
+      renderReport();
+    });
+    $('show-teamavg-row').addEventListener('change', function () {
+      state.showTeamAvgRow = $('show-teamavg-row').checked;
+      renderReport();
+    });
+    $('per-team-avg').addEventListener('change', function () {
+      state.perTeamAvg = $('per-team-avg').checked;
+      renderReport();
     });
     $('reset-dates-btn').addEventListener('click', function () {
       if (!state.dataset) return;
@@ -482,7 +1078,7 @@ var ADMIN_PASSCODE = 'kevinisablock';
     $('athlete-search').addEventListener('input', renderAthleteList);
     $('select-all-btn').addEventListener('click', function () {
       if (!state.dataset) return;
-      state.selected = Object.keys(state.dataset.athletes);
+      state.selected = filteredBaseNames();
       renderAthleteList(); renderReport();
     });
     $('clear-athletes-btn').addEventListener('click', function () {
@@ -490,6 +1086,8 @@ var ADMIN_PASSCODE = 'kevinisablock';
       renderAthleteList(); renderReport();
     });
     $('print-btn').addEventListener('click', function () { window.print(); });
+    $('view-table-btn').addEventListener('click', function () { setView('table'); });
+    $('view-analytics-btn').addEventListener('click', function () { setView('analytics'); });
   }
 
   // Testable surface (used by the local Node test harness; harmless in browser).
@@ -497,7 +1095,10 @@ var ADMIN_PASSCODE = 'kevinisablock';
     ADMIN_PASSCODE: ADMIN_PASSCODE, EXERCISES: EXERCISES, SAMPLE_CSV: SAMPLE_CSV,
     parseCSV: parseCSV, cleanName: cleanName, splitName: splitName,
     parseAsymmetry: parseAsymmetry, parseDateISO: parseDateISO,
-    buildDataset: buildDataset, pivotReport: pivotReport, deltaClass: deltaClass
+    buildDataset: buildDataset, pivotReport: pivotReport, deltaClass: deltaClass,
+    parseRoster: parseRoster, matchRoster: matchRoster,
+    computeAvgRow: computeAvgRow, computePerTeamRows: computePerTeamRows,
+    buildAnalyticsData: buildAnalyticsData
   };
   if (typeof window !== 'undefined') { window.AdminReport = api; }
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; }

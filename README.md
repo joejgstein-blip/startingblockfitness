@@ -51,14 +51,24 @@ No spreadsheet is generated and no file leaves the browser.
   in the PDF/print output.
 - **Analytics view:** a Table | Analytics toggle above the report. Both
   views use the same uploaded test CSV + roster + current filters.
-  Analytics has three inline-SVG charts (no chart library, no CDN):
+  Analytics has four inline-SVG charts (no chart library, no CDN):
   (1) trend over time — team average per test date, with up to 5
   selected athletes overlaid; (2) athlete vs team — each athlete’s
   personal average against the team average, with the difference shown;
   (3) distribution / ranking — athletes ranked by personal average with
-  the team average marked as a dashed reference line. Every chart is
-  labelled with the exercise, dates and what “team” means (filtered
-  org/team). Export to PDF prints whichever view is active.
+  the team average marked as a dashed reference line; (4) suggested
+  scatterplots — one point per athlete (personal average for each
+  metric over the selected dates), coloured by team with a legend and
+  dashed team-average reference lines on both axes. A “Suggested plot”
+  dropdown offers Jump Height vs Relative Power, Explosiveness (RSI)
+  vs Jump Height, Asymmetry vs Relative Power, Countermovement Depth
+  vs Jump Height, and Relative Power vs Bodyweight; custom X and Y
+  pickers allow any two available metrics (the four report exercises
+  plus Countermovement Depth, Bodyweight, Eccentric Peak Velocity and
+  Imp-Mom Jump Height). Athletes missing either metric are excluded —
+  never plotted as zero. Every chart is labelled with the exercise,
+  dates and what “team” means (filtered org/team). Export to PDF prints
+  whichever view is active.
 
 - **Set the passcode first:** edit `ADMIN_PASSCODE` in `admin.js`
   (currently the placeholder `SET-YOUR-PASSCODE-HERE`). Until it is set,

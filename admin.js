@@ -33,6 +33,42 @@ var ADMIN_PASSCODE = 'kevinisablock';
     { id: 'peak-force', label: 'Peak Force', subtitle: 'Force Plate Testing: Concentric Peak Force (n)', unit: 'N', column: null, decimals: 0, available: false, unavailableReason: 'Not available from this export — no peak-force-in-Newtons column in the ForceDecks CSV.' }
   ];
 
+  /* Extra ForceDecks columns that are real scatter axes but are not
+   * report exercises: Countermovement Depth, Bodyweight, Eccentric Peak
+   * Velocity and Imp-Mom Jump Height. Stored in the dataset under
+   * 's:<id>' so they never collide with exercise ids. Squat to Jump
+   * Transition and Peak Force stay excluded — no source columns. */
+  var SCATTER_METRICS = [
+    { id: 'countermovement-depth', label: 'Countermovement Depth', unit: 'cm', column: 'Countermovement Depth [cm]', decimals: 1 },
+    { id: 'bodyweight', label: 'Bodyweight', unit: 'kg', column: 'BW [KG]', decimals: 1 },
+    { id: 'eccentric-peak-velocity', label: 'Eccentric Peak Velocity', unit: 'm/s', column: 'Eccentric Peak Velocity [m/s]', decimals: 2 },
+    { id: 'jump-height-imp-mom', label: 'Jump Height — Imp-Mom', unit: 'in', column: 'Jump Height (Imp-Mom) in Inches [in]', decimals: 1 }
+  ];
+
+  /* Suggested pairs, labelled "X vs Y" (X first). */
+  var SCATTER_PRESETS = [
+    { id: 'jump-height-vs-power', label: 'Jump Height vs Relative Power', x: 'jump-height', y: 'relative-power' },
+    { id: 'explosiveness-vs-jump-height', label: 'Explosiveness (RSI) vs Jump Height', x: 'explosiveness', y: 'jump-height' },
+    { id: 'asymmetry-vs-power', label: 'Asymmetry vs Relative Power', x: 'asymmetry', y: 'relative-power' },
+    { id: 'depth-vs-jump-height', label: 'Countermovement Depth vs Jump Height', x: 'countermovement-depth', y: 'jump-height' },
+    { id: 'power-vs-bodyweight', label: 'Relative Power vs Bodyweight', x: 'bodyweight', y: 'relative-power' }
+  ];
+
+  function scatterMetricOptions() {
+    return EXERCISES.filter(function (e) { return e.available; }).concat(SCATTER_METRICS);
+  }
+
+  function scatterMetricDef(id) {
+    var all = scatterMetricOptions();
+    return all.filter(function (m) { return m.id === id; })[0] || null;
+  }
+
+  /* Exercises are stored under their id; extra scatter metrics under
+   * 's:<id>'. */
+  function metricStoreKey(metricId) {
+    var isExercise = EXERCISES.some(function (e) { return e.available && e.id === metricId; });
+    return isExercise ? metricId : 's:' + metricId;
+  }
   /* De-identified demo data. Values are taken from the September 2026
    * export with names removed (Demo Athlete A–E); it is for trying the
    * filters only. The full athlete CSV is never bundled with this site. */
@@ -146,6 +182,14 @@ var ADMIN_PASSCODE = 'kevinisablock';
         if (val != null && !isNaN(val)) {
           if (!athletes[name].byDate[iso][ex.id]) athletes[name].byDate[iso][ex.id] = [];
           athletes[name].byDate[iso][ex.id].push(val);
+        }
+      });
+      SCATTER_METRICS.forEach(function (m) {
+        var val = parseFloat(row[m.column]);
+        if (val != null && !isNaN(val)) {
+          var key = 's:' + m.id;
+          if (!athletes[name].byDate[iso][key]) athletes[name].byDate[iso][key] = [];
+          athletes[name].byDate[iso][key].push(val);
         }
       });
     });
@@ -269,6 +313,71 @@ var ADMIN_PASSCODE = 'kevinisablock';
     return { trend: trend, vsTeam: vsTeam, ranking: ranking, teamAvg: report.teamAvg };
   }
 
+  /* One athlete's personal average for any scatter metric over a date
+   * window: duplicate trials on the same date are averaged first, then
+   * the per-date means are averaged — the same rule as the table. */
+  function personalAvgForMetric(athlete, metricId, dates) {
+    var key = metricStoreKey(metricId);
+    var present = dates.map(function (d) {
+      var vals = (athlete.byDate[d] || {})[key];
+      return vals && vals.length ? mean(vals) : null;
+    }).filter(function (v) { return v != null; });
+    return present.length ? mean(present) : null;
+  }
+
+  /* ---------- Scatterplot data (pure — testable in Node) ----------
+   * One point per athlete: personal average for X vs personal average
+   * for Y over the same filtered date window, org/team and athlete
+   * selection as the table. Athletes missing either metric (including
+   * DNT roster athletes) are excluded — never plotted as zero. Team
+   * means are the means of the plotted points only. */
+  function buildScatterData(dataset, xId, yId, startISO, endISO, selectedNames, opts) {
+    var xDef = scatterMetricDef(xId), yDef = scatterMetricDef(yId);
+    if (!xDef || !yDef) return null;
+    var dates = dataset.dates.filter(function (d) {
+      return (!startISO || d >= startISO) && (!endISO || d <= endISO);
+    });
+    var opts2 = opts || {};
+    var roster = opts2.roster || null;
+    var org = opts2.org || '';
+    var team = opts2.team || '';
+    var names;
+    if (roster) {
+      names = roster.list.filter(function (n) {
+        var r = roster.athletes[n];
+        return (!org || r.org === org) && (!team || r.team === team);
+      });
+    } else {
+      names = Object.keys(dataset.athletes).sort(function (a, b) {
+        var A = dataset.athletes[a], B = dataset.athletes[b];
+        return (A.last + A.first).localeCompare(B.last + B.first);
+      });
+    }
+    if (selectedNames && selectedNames.length) {
+      names = names.filter(function (n) { return selectedNames.indexOf(n) !== -1; });
+    }
+    var points = [], excluded = 0, xMissing = 0, yMissing = 0;
+    names.forEach(function (name) {
+      var a = dataset.athletes[name];
+      if (!a) { excluded++; return; } // roster athlete with no tests at all
+      var xv = personalAvgForMetric(a, xId, dates);
+      var yv = personalAvgForMetric(a, yId, dates);
+      if (xv == null) xMissing++;
+      if (yv == null) yMissing++;
+      if (xv == null || yv == null) { excluded++; return; }
+      var rTeam = roster && roster.athletes[name] ? roster.athletes[name].team : UNASSIGNED;
+      points.push({ name: name, first: a.first, last: a.last, team: rTeam, x: xv, y: yv });
+    });
+    var teams = {};
+    points.forEach(function (p) { teams[p.team] = (teams[p.team] || 0) + 1; });
+    return {
+      x: xDef, y: yDef, dates: dates, points: points,
+      xMean: mean(points.map(function (p) { return p.x; })),
+      yMean: mean(points.map(function (p) { return p.y; })),
+      teams: teams, excluded: excluded, xMissing: xMissing, yMissing: yMissing
+    };
+  }
+
   /* Pivot one exercise for a date window + athlete selection. */
   function pivotReport(dataset, exerciseId, startISO, endISO, selectedNames, opts) {
     var ex = EXERCISES.filter(function (e) { return e.id === exerciseId; })[0];
@@ -389,6 +498,8 @@ var ADMIN_PASSCODE = 'kevinisablock';
       roster: null, rosterFileName: null, rosterRefreshedAt: null,
       org: '', team: '', showDNT: false,
       showTeamAvgRow: true, perTeamAvg: false,
+      scatterPreset: 'jump-height-vs-power',
+      scatterX: 'jump-height', scatterY: 'relative-power',
       view: 'table' // 'table' | 'analytics'
     };
 
@@ -505,6 +616,49 @@ var ADMIN_PASSCODE = 'kevinisablock';
       opt.textContent = ex.available ? ex.label + ' (' + ex.unit + ')' : ex.label + ' — not available from this export';
       if (!ex.available) opt.disabled = true;
       exerciseSelect.appendChild(opt);
+    });
+
+    // Scatterplot pickers (Analytics view). Changing a suggested plot sets
+    // both axes; changing an axis by hand switches the preset to Custom.
+    var presetSelect = $('scatter-preset');
+    SCATTER_PRESETS.forEach(function (p) {
+      var opt = document.createElement('option');
+      opt.value = p.id; opt.textContent = p.label;
+      presetSelect.appendChild(opt);
+    });
+    var customOpt = document.createElement('option');
+    customOpt.value = 'custom'; customOpt.textContent = 'Custom…';
+    presetSelect.appendChild(customOpt);
+    presetSelect.value = state.scatterPreset;
+    var scatterXSelect = $('scatter-x');
+    var scatterYSelect = $('scatter-y');
+    scatterMetricOptions().forEach(function (m) {
+      var ox = document.createElement('option');
+      ox.value = m.id; ox.textContent = m.label + ' (' + m.unit + ')';
+      scatterXSelect.appendChild(ox);
+      var oy = document.createElement('option');
+      oy.value = m.id; oy.textContent = m.label + ' (' + m.unit + ')';
+      scatterYSelect.appendChild(oy);
+    });
+    scatterXSelect.value = state.scatterX;
+    scatterYSelect.value = state.scatterY;
+    presetSelect.addEventListener('change', function () {
+      var p = SCATTER_PRESETS.filter(function (pr) { return pr.id === presetSelect.value; })[0];
+      if (!p) return;
+      state.scatterPreset = p.id;
+      state.scatterX = p.x; state.scatterY = p.y;
+      scatterXSelect.value = p.x; scatterYSelect.value = p.y;
+      if (state.dataset) renderReport();
+    });
+    scatterXSelect.addEventListener('change', function () {
+      state.scatterX = scatterXSelect.value;
+      state.scatterPreset = 'custom'; presetSelect.value = 'custom';
+      if (state.dataset) renderReport();
+    });
+    scatterYSelect.addEventListener('change', function () {
+      state.scatterY = scatterYSelect.value;
+      state.scatterPreset = 'custom'; presetSelect.value = 'custom';
+      if (state.dataset) renderReport();
     });
 
     function currentFilters() {
@@ -705,6 +859,16 @@ var ADMIN_PASSCODE = 'kevinisablock';
     /* ---------- Analytics view (inline SVG, no chart library) ---------- */
     var SVGNS = 'http://www.w3.org/2000/svg';
     var ATHLETE_COLORS = ['#0e7a6b', '#b7791f', '#6b46c1', '#2b6cb0', '#718096'];
+    /* Distinct colours per roster team on the scatterplot; athletes with
+     * no roster team get a neutral grey. */
+    var TEAM_COLORS = ['#0e7a6b', '#2b6cb0', '#b7791f', '#6b46c1', '#c53030', '#276749', '#975a16', '#4a5568'];
+    var TEAM_UNASSIGNED_COLOR = '#9aa5b1';
+
+    function teamColor(team, teamList) {
+      if (team === UNASSIGNED) return TEAM_UNASSIGNED_COLOR;
+      var idx = teamList.indexOf(team);
+      return idx === -1 ? TEAM_UNASSIGNED_COLOR : TEAM_COLORS[idx % TEAM_COLORS.length];
+    }
 
     function svgEl(tag, attrs, parent) {
       var el = document.createElementNS(SVGNS, tag);
@@ -864,6 +1028,94 @@ var ADMIN_PASSCODE = 'kevinisablock';
       container.appendChild(cap);
     }
 
+    function renderScatterChart(container, data, scopeLabel) {
+      container.innerHTML = '';
+      var legend = $('scatter-legend');
+      legend.innerHTML = '';
+      var note = $('scatter-note');
+      note.textContent = '';
+      if (!data) {
+        container.innerHTML = '<p class="note">Pick two metrics to plot.</p>';
+        return;
+      }
+      if (!data.points.length) {
+        var missing = [];
+        if (data.xMissing) missing.push(data.x.label + ' (' + data.xMissing + ' athlete' + (data.xMissing === 1 ? '' : 's') + ' without a value)');
+        if (data.yMissing) missing.push(data.y.label + ' (' + data.yMissing + ' athlete' + (data.yMissing === 1 ? '' : 's') + ' without a value)');
+        container.innerHTML = '<p class="note">No athletes have values for both ' + data.x.label + ' and ' + data.y.label + ' in this window.' +
+          (missing.length ? ' Missing: ' + missing.join('; ') + '.' : '') +
+          ' Countermovement Depth, Bodyweight, Eccentric Peak Velocity and Imp-Mom Jump Height are not in the de-identified sample data — upload the full ForceDecks export for those.</p>';
+        return;
+      }
+      var xs = data.points.map(function (p) { return p.x; });
+      var ys = data.points.map(function (p) { return p.y; });
+      var xMin = Math.min.apply(null, xs), xMax = Math.max.apply(null, xs);
+      var yMin = Math.min.apply(null, ys), yMax = Math.max.apply(null, ys);
+      var xPad = (xMax - xMin) * 0.12 || 1, yPad = (yMax - yMin) * 0.12 || 1;
+      xMin -= xPad; xMax += xPad; yMin -= yPad; yMax += yPad;
+      var W = 760, H = 380, L = 64, R = 24, T = 18, B = 54;
+      var svg = svgEl('svg', {
+        viewBox: '0 0 ' + W + ' ' + H, class: 'chart-svg', role: 'img',
+        'aria-label': 'Scatterplot of ' + data.y.label + ' vs ' + data.x.label
+      }, container);
+      var x = function (v) { return L + (v - xMin) / (xMax - xMin) * (W - L - R); };
+      var y = function (v) { return T + (1 - (v - yMin) / (yMax - yMin)) * (H - T - B); };
+      axisTicks(xMin, xMax, 4).forEach(function (t) {
+        svgEl('line', { x1: x(t), x2: x(t), y1: T, y2: H - B, stroke: '#e3e8ef', 'stroke-width': 1 }, svg);
+        svgText(svg, x(t), H - B + 18, t.toFixed(data.x.decimals), { 'text-anchor': 'middle', 'font-size': 11, fill: '#5a6a7d' });
+      });
+      axisTicks(yMin, yMax, 4).forEach(function (t) {
+        svgEl('line', { x1: L, x2: W - R, y1: y(t), y2: y(t), stroke: '#e3e8ef', 'stroke-width': 1 }, svg);
+        svgText(svg, L - 8, y(t) + 4, t.toFixed(data.y.decimals), { 'text-anchor': 'end', 'font-size': 11, fill: '#5a6a7d' });
+      });
+      svgText(svg, L + (W - L - R) / 2, H - 8, data.x.label + ' (' + data.x.unit + ')', { 'text-anchor': 'middle', 'font-size': 12, fill: '#1a2332', 'font-weight': 700 });
+      var yLabel = svgText(svg, 14, T + (H - T - B) / 2, data.y.label + ' (' + data.y.unit + ')', { 'text-anchor': 'middle', 'font-size': 12, fill: '#1a2332', 'font-weight': 700 });
+      yLabel.setAttribute('transform', 'rotate(-90 14 ' + (T + (H - T - B) / 2) + ')');
+      // Team-average reference lines (means of the plotted points only).
+      if (data.xMean != null) {
+        svgEl('line', { x1: x(data.xMean), x2: x(data.xMean), y1: T, y2: H - B, stroke: '#0f2040', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, svg);
+        svgText(svg, Math.min(x(data.xMean) + 6, W - R - 110), T + 12, 'Team avg ' + data.x.label + ': ' + data.xMean.toFixed(data.x.decimals), { 'font-size': 11, fill: '#0f2040', 'font-weight': 700 });
+      }
+      if (data.yMean != null) {
+        svgEl('line', { x1: L, x2: W - R, y1: y(data.yMean), y2: y(data.yMean), stroke: '#0f2040', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, svg);
+        svgText(svg, L + 6, Math.max(y(data.yMean) - 6, T + 12), 'Team avg ' + data.y.label + ': ' + data.yMean.toFixed(data.y.decimals), { 'font-size': 11, fill: '#0f2040', 'font-weight': 700 });
+      }
+      var teamList = Object.keys(data.teams).sort(function (a, b) {
+        if (a === UNASSIGNED) return 1;
+        if (b === UNASSIGNED) return -1;
+        return a.localeCompare(b);
+      });
+      data.points.forEach(function (p) {
+        var c = svgEl('circle', {
+          cx: x(p.x), cy: y(p.y), r: 5.5,
+          fill: teamColor(p.team, teamList), stroke: '#fff', 'stroke-width': 1
+        }, svg);
+        var title = document.createElementNS(SVGNS, 'title');
+        title.textContent = p.first + ' ' + p.last + ' (' + p.team + ') — ' +
+          data.x.label + ': ' + p.x.toFixed(data.x.decimals) + ' ' + data.x.unit + ', ' +
+          data.y.label + ': ' + p.y.toFixed(data.y.decimals) + ' ' + data.y.unit;
+        c.appendChild(title);
+      });
+      teamList.forEach(function (team) {
+        var s = document.createElement('span');
+        s.className = 'legend-item';
+        var sw = document.createElement('span');
+        sw.className = 'legend-swatch';
+        sw.style.background = teamColor(team, teamList);
+        sw.style.height = '10px';
+        sw.style.borderRadius = '50%';
+        s.appendChild(sw);
+        s.appendChild(document.createTextNode(' ' + team + ' (' + data.teams[team] + ')'));
+        legend.appendChild(s);
+      });
+      note.textContent = data.points.length + ' athlete' + (data.points.length === 1 ? '' : 's') + ' plotted' +
+        (scopeLabel ? ' — ' + scopeLabel : '') +
+        (data.excluded ? ' (' + data.excluded + ' excluded: no values for one or both metrics in this window — DNT is never plotted as zero).' : '.') +
+        ' Dashed lines are the team averages of the plotted athletes: ' +
+        data.x.label + ' ' + (data.xMean == null ? '—' : data.xMean.toFixed(data.x.decimals) + ' ' + data.x.unit) + ', ' +
+        data.y.label + ' ' + (data.yMean == null ? '—' : data.yMean.toFixed(data.y.decimals) + ' ' + data.y.unit) + '.';
+    }
+
     function renderAnalytics(report, ex, scopeLabel, startISO, endISO) {
       var data = buildAnalyticsData(report, 5);
       $('analytics-title').textContent = 'Analytics — ' + ex.label;
@@ -881,9 +1133,15 @@ var ADMIN_PASSCODE = 'kevinisablock';
         (data.trend.athletes.length ? ', with each selected athlete’s own values overlaid (up to 5).' : '.');
       $('vsteam-sub').textContent = 'Each athlete’s personal average against the team average for this window.';
       $('ranking-sub').textContent = 'Athletes ranked by personal average for this window.';
+      var scatter = buildScatterData(state.dataset, state.scatterX, state.scatterY, startISO, endISO, state.selected, {
+        roster: state.roster, org: state.org, team: state.team
+      });
+      $('scatter-sub').textContent = 'One point per athlete: personal average for each metric over the selected dates. ' +
+        (scatter ? scatter.y.label + ' vs ' + scatter.x.label + '.' : '');
       renderTrendChart($('trend-chart'), data, ex);
       renderVsTeamChart($('vsteam-chart'), data, ex);
       renderRankingChart($('ranking-chart'), data, ex);
+      renderScatterChart($('scatter-chart'), scatter, scopeLabel);
     }
 
     function setView(view) {
@@ -1093,12 +1351,15 @@ var ADMIN_PASSCODE = 'kevinisablock';
   // Testable surface (used by the local Node test harness; harmless in browser).
   var api = {
     ADMIN_PASSCODE: ADMIN_PASSCODE, EXERCISES: EXERCISES, SAMPLE_CSV: SAMPLE_CSV,
+    SCATTER_METRICS: SCATTER_METRICS, SCATTER_PRESETS: SCATTER_PRESETS,
+    scatterMetricDef: scatterMetricDef,
     parseCSV: parseCSV, cleanName: cleanName, splitName: splitName,
     parseAsymmetry: parseAsymmetry, parseDateISO: parseDateISO,
     buildDataset: buildDataset, pivotReport: pivotReport, deltaClass: deltaClass,
     parseRoster: parseRoster, matchRoster: matchRoster,
     computeAvgRow: computeAvgRow, computePerTeamRows: computePerTeamRows,
-    buildAnalyticsData: buildAnalyticsData
+    buildAnalyticsData: buildAnalyticsData,
+    buildScatterData: buildScatterData, personalAvgForMetric: personalAvgForMetric
   };
   if (typeof window !== 'undefined') { window.AdminReport = api; }
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; }

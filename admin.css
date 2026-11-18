@@ -82,6 +82,11 @@ td.delta-na { color: var(--muted); font-weight: 500; }
 .report-foot { margin-top: 16px; font-size: 13px; color: var(--muted); }
 .report-footnote { margin-bottom: 8px; }
 
+/* Scatterplot controls */
+.scatter-controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-bottom: 12px; }
+.scatter-controls label { font-weight: 700; font-size: 14px; }
+.scatter-controls select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; background: #fff; }
+
 /* View toggle (Table | Analytics) */
 .view-toggle { gap: 0; }
 .view-btn { border-radius: 0; }

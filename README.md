@@ -21,6 +21,7 @@ Colours are sampled from `sbf_logo.webp` — nothing else:
 - Deep red `#700310` — accent only: primary buttons, eyebrows, rules, links, focus states. Hover shade `#57020c`. Never a large red field.
 - Warm neutrals — body text `#1c1c1c`, secondary text `#5c5c5c`, hairlines `#e5e5e5`, alt-section background `#f6f5f3`
 - Radius `8px`; flat cards with thin borders, no heavy shadows, no gradients
+- Type: headings and logo wordmark in Barlow Condensed (Google Fonts, weights 600/700, fallback Arial Narrow), body in system sans. Headings are larger than usual to suit the condensed face.
 
 Design notes (to keep the site from reading as AI-generated): the palette
 and logo come from the real brand, not defaults; copy sticks to specifics
@@ -90,8 +91,8 @@ No spreadsheet is generated and no file leaves the browser.
   dates and what “team” means (filtered org/team). Export to PDF prints
   whichever view is active.
 
-- **Set the passcode first:** edit `ADMIN_PASSCODE` in `admin.js`
-  (currently the placeholder `SET-YOUR-PASSCODE-HERE`). Until it is set,
+- **Passcode:** set in `ADMIN_PASSCODE` in `admin.js` (value not recorded
+  here). If it is ever reset to the placeholder `SET-YOUR-PASSCODE-HERE`,
   the gate shows a setup warning and will not unlock.
 - **Security:** this is a client-side gate on a static site — obscured,
   not secured. Anyone who can read `admin.js` can read the passcode.

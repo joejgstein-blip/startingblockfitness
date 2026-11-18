@@ -858,11 +858,11 @@ var ADMIN_PASSCODE = 'kevinisablock';
 
     /* ---------- Analytics view (inline SVG, no chart library) ---------- */
     var SVGNS = 'http://www.w3.org/2000/svg';
-    var ATHLETE_COLORS = ['#0e7a6b', '#b7791f', '#6b46c1', '#2b6cb0', '#718096'];
+    var ATHLETE_COLORS = ['#700310', '#b7791f', '#5b5b5b', '#2b6cb0', '#757575'];
     /* Distinct colours per roster team on the scatterplot; athletes with
      * no roster team get a neutral grey. */
-    var TEAM_COLORS = ['#0e7a6b', '#2b6cb0', '#b7791f', '#6b46c1', '#c53030', '#276749', '#975a16', '#4a5568'];
-    var TEAM_UNASSIGNED_COLOR = '#9aa5b1';
+    var TEAM_COLORS = ['#700310', '#2b6cb0', '#b7791f', '#5b5b5b', '#c2410c', '#276749', '#975a16', '#4a4a4a'];
+    var TEAM_UNASSIGNED_COLOR = '#8a8a8a';
 
     function teamColor(team, teamList) {
       if (team === UNASSIGNED) return TEAM_UNASSIGNED_COLOR;
@@ -918,11 +918,11 @@ var ADMIN_PASSCODE = 'kevinisablock';
       var x = function (i) { return dates.length === 1 ? W / 2 : L + i * (W - L - R) / (dates.length - 1); };
       var y = function (v) { return T + (1 - (v - min) / (max - min)) * (H - T - B); };
       axisTicks(min, max, 4).forEach(function (t) {
-        svgEl('line', { x1: L, x2: W - R, y1: y(t), y2: y(t), stroke: '#e3e8ef', 'stroke-width': 1 }, svg);
-        svgText(svg, L - 8, y(t) + 4, t.toFixed(ex.decimals), { 'text-anchor': 'end', 'font-size': 11, fill: '#5a6a7d' });
+        svgEl('line', { x1: L, x2: W - R, y1: y(t), y2: y(t), stroke: '#e5e5e5', 'stroke-width': 1 }, svg);
+        svgText(svg, L - 8, y(t) + 4, t.toFixed(ex.decimals), { 'text-anchor': 'end', 'font-size': 11, fill: '#5c5c5c' });
       });
       dates.forEach(function (d, i) {
-        svgText(svg, x(i), H - 10, formatDateShort(d), { 'text-anchor': 'middle', 'font-size': 11, fill: '#5a6a7d' });
+        svgText(svg, x(i), H - 10, formatDateShort(d), { 'text-anchor': 'middle', 'font-size': 11, fill: '#5c5c5c' });
       });
       // Athlete overlays first (underneath), team line on top.
       data.trend.athletes.forEach(function (a, ai) {
@@ -933,9 +933,9 @@ var ADMIN_PASSCODE = 'kevinisablock';
         });
       });
       var teamPts = data.trend.teamValues.map(function (v, i) { return v == null ? null : { x: x(i), y: y(v) }; });
-      svgEl('path', { d: linePath(teamPts), fill: 'none', stroke: '#0f2040', 'stroke-width': 2.5 }, svg);
+      svgEl('path', { d: linePath(teamPts), fill: 'none', stroke: '#000000', 'stroke-width': 2.5 }, svg);
       teamPts.forEach(function (p) {
-        if (p) svgEl('circle', { cx: p.x, cy: p.y, r: 4, fill: '#0f2040' }, svg);
+        if (p) svgEl('circle', { cx: p.x, cy: p.y, r: 4, fill: '#000000' }, svg);
       });
       // Legend
       var legend = $('trend-legend');
@@ -950,7 +950,7 @@ var ADMIN_PASSCODE = 'kevinisablock';
         s.appendChild(document.createTextNode(' ' + label));
         legend.appendChild(s);
       }
-      legendItem('#0f2040', 'Team average');
+      legendItem('#000000', 'Team average');
       data.trend.athletes.forEach(function (a, ai) {
         legendItem(ATHLETE_COLORS[ai % ATHLETE_COLORS.length], a.name);
       });
@@ -979,15 +979,15 @@ var ADMIN_PASSCODE = 'kevinisablock';
       var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'chart-svg', role: 'img', 'aria-label': 'Dot chart of personal averages vs team average' }, container);
       var x = function (v) { return L + (v - min) / (max - min) * (W - L - R); };
       axisTicks(min, max, 4).forEach(function (t) {
-        svgEl('line', { x1: x(t), x2: x(t), y1: T, y2: T + rows.length * rowH, stroke: '#e3e8ef', 'stroke-width': 1 }, svg);
-        svgText(svg, x(t), T + rows.length * rowH + 18, t.toFixed(ex.decimals), { 'text-anchor': 'middle', 'font-size': 11, fill: '#5a6a7d' });
+        svgEl('line', { x1: x(t), x2: x(t), y1: T, y2: T + rows.length * rowH, stroke: '#e5e5e5', 'stroke-width': 1 }, svg);
+        svgText(svg, x(t), T + rows.length * rowH + 18, t.toFixed(ex.decimals), { 'text-anchor': 'middle', 'font-size': 11, fill: '#5c5c5c' });
       });
       // Team-average reference line.
-      svgEl('line', { x1: x(data.teamAvg), x2: x(data.teamAvg), y1: T, y2: T + rows.length * rowH, stroke: '#0f2040', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, svg);
+      svgEl('line', { x1: x(data.teamAvg), x2: x(data.teamAvg), y1: T, y2: T + rows.length * rowH, stroke: '#000000', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, svg);
       rows.forEach(function (r, i) {
         var cy = T + i * rowH + rowH / 2;
-        svgText(svg, L - 8, cy + 4, r.first + ' ' + r.last, { 'text-anchor': 'end', 'font-size': 12, fill: '#1a2332' });
-        svgEl('circle', { cx: x(r.personalAvg), cy: cy, r: 5, fill: '#0e7a6b' }, svg);
+        svgText(svg, L - 8, cy + 4, r.first + ' ' + r.last, { 'text-anchor': 'end', 'font-size': 12, fill: '#1c1c1c' });
+        svgEl('circle', { cx: x(r.personalAvg), cy: cy, r: 5, fill: '#700310' }, svg);
         var diff = r.diff == null ? '—' : (r.diff > 0 ? '+' : '') + r.diff.toFixed(ex.decimals);
         svgText(svg, W - R + 8, cy + 4, diff + ' ' + ex.unit, { 'font-size': 12, fill: r.diff != null && r.diff >= 0 ? '#137333' : '#7a271a', 'font-weight': 700 });
       });
@@ -1011,15 +1011,15 @@ var ADMIN_PASSCODE = 'kevinisablock';
       var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'chart-svg', role: 'img', 'aria-label': 'Ranked bar chart of personal averages' }, container);
       var x = function (v) { return L + v / (max * 1.05) * (W - L - R); };
       axisTicks(0, max * 1.05, 4).forEach(function (t) {
-        svgEl('line', { x1: x(t), x2: x(t), y1: T, y2: T + rows.length * rowH, stroke: '#e3e8ef', 'stroke-width': 1 }, svg);
-        svgText(svg, x(t), T + rows.length * rowH + 18, t.toFixed(0), { 'text-anchor': 'middle', 'font-size': 11, fill: '#5a6a7d' });
+        svgEl('line', { x1: x(t), x2: x(t), y1: T, y2: T + rows.length * rowH, stroke: '#e5e5e5', 'stroke-width': 1 }, svg);
+        svgText(svg, x(t), T + rows.length * rowH + 18, t.toFixed(0), { 'text-anchor': 'middle', 'font-size': 11, fill: '#5c5c5c' });
       });
-      svgEl('line', { x1: x(data.teamAvg), x2: x(data.teamAvg), y1: T, y2: T + rows.length * rowH, stroke: '#0f2040', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, svg);
+      svgEl('line', { x1: x(data.teamAvg), x2: x(data.teamAvg), y1: T, y2: T + rows.length * rowH, stroke: '#000000', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, svg);
       rows.forEach(function (r, i) {
         var y0 = T + i * rowH + 4;
-        svgText(svg, L - 8, y0 + 11, r.first + ' ' + r.last, { 'text-anchor': 'end', 'font-size': 12, fill: '#1a2332' });
-        svgEl('rect', { x: L, y: y0, width: Math.max(1, x(r.personalAvg) - L), height: 14, fill: '#0e7a6b', rx: 2 }, svg);
-        svgText(svg, x(r.personalAvg) + 6, y0 + 11, r.personalAvg.toFixed(ex.decimals), { 'font-size': 12, fill: '#1a2332' });
+        svgText(svg, L - 8, y0 + 11, r.first + ' ' + r.last, { 'text-anchor': 'end', 'font-size': 12, fill: '#1c1c1c' });
+        svgEl('rect', { x: L, y: y0, width: Math.max(1, x(r.personalAvg) - L), height: 14, fill: '#700310', rx: 2 }, svg);
+        svgText(svg, x(r.personalAvg) + 6, y0 + 11, r.personalAvg.toFixed(ex.decimals), { 'font-size': 12, fill: '#1c1c1c' });
       });
       var cap = document.createElement('p');
       cap.className = 'note';
@@ -1061,24 +1061,24 @@ var ADMIN_PASSCODE = 'kevinisablock';
       var x = function (v) { return L + (v - xMin) / (xMax - xMin) * (W - L - R); };
       var y = function (v) { return T + (1 - (v - yMin) / (yMax - yMin)) * (H - T - B); };
       axisTicks(xMin, xMax, 4).forEach(function (t) {
-        svgEl('line', { x1: x(t), x2: x(t), y1: T, y2: H - B, stroke: '#e3e8ef', 'stroke-width': 1 }, svg);
-        svgText(svg, x(t), H - B + 18, t.toFixed(data.x.decimals), { 'text-anchor': 'middle', 'font-size': 11, fill: '#5a6a7d' });
+        svgEl('line', { x1: x(t), x2: x(t), y1: T, y2: H - B, stroke: '#e5e5e5', 'stroke-width': 1 }, svg);
+        svgText(svg, x(t), H - B + 18, t.toFixed(data.x.decimals), { 'text-anchor': 'middle', 'font-size': 11, fill: '#5c5c5c' });
       });
       axisTicks(yMin, yMax, 4).forEach(function (t) {
-        svgEl('line', { x1: L, x2: W - R, y1: y(t), y2: y(t), stroke: '#e3e8ef', 'stroke-width': 1 }, svg);
-        svgText(svg, L - 8, y(t) + 4, t.toFixed(data.y.decimals), { 'text-anchor': 'end', 'font-size': 11, fill: '#5a6a7d' });
+        svgEl('line', { x1: L, x2: W - R, y1: y(t), y2: y(t), stroke: '#e5e5e5', 'stroke-width': 1 }, svg);
+        svgText(svg, L - 8, y(t) + 4, t.toFixed(data.y.decimals), { 'text-anchor': 'end', 'font-size': 11, fill: '#5c5c5c' });
       });
-      svgText(svg, L + (W - L - R) / 2, H - 8, data.x.label + ' (' + data.x.unit + ')', { 'text-anchor': 'middle', 'font-size': 12, fill: '#1a2332', 'font-weight': 700 });
-      var yLabel = svgText(svg, 14, T + (H - T - B) / 2, data.y.label + ' (' + data.y.unit + ')', { 'text-anchor': 'middle', 'font-size': 12, fill: '#1a2332', 'font-weight': 700 });
+      svgText(svg, L + (W - L - R) / 2, H - 8, data.x.label + ' (' + data.x.unit + ')', { 'text-anchor': 'middle', 'font-size': 12, fill: '#1c1c1c', 'font-weight': 700 });
+      var yLabel = svgText(svg, 14, T + (H - T - B) / 2, data.y.label + ' (' + data.y.unit + ')', { 'text-anchor': 'middle', 'font-size': 12, fill: '#1c1c1c', 'font-weight': 700 });
       yLabel.setAttribute('transform', 'rotate(-90 14 ' + (T + (H - T - B) / 2) + ')');
       // Team-average reference lines (means of the plotted points only).
       if (data.xMean != null) {
-        svgEl('line', { x1: x(data.xMean), x2: x(data.xMean), y1: T, y2: H - B, stroke: '#0f2040', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, svg);
-        svgText(svg, Math.min(x(data.xMean) + 6, W - R - 110), T + 12, 'Team avg ' + data.x.label + ': ' + data.xMean.toFixed(data.x.decimals), { 'font-size': 11, fill: '#0f2040', 'font-weight': 700 });
+        svgEl('line', { x1: x(data.xMean), x2: x(data.xMean), y1: T, y2: H - B, stroke: '#000000', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, svg);
+        svgText(svg, Math.min(x(data.xMean) + 6, W - R - 110), T + 12, 'Team avg ' + data.x.label + ': ' + data.xMean.toFixed(data.x.decimals), { 'font-size': 11, fill: '#000000', 'font-weight': 700 });
       }
       if (data.yMean != null) {
-        svgEl('line', { x1: L, x2: W - R, y1: y(data.yMean), y2: y(data.yMean), stroke: '#0f2040', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, svg);
-        svgText(svg, L + 6, Math.max(y(data.yMean) - 6, T + 12), 'Team avg ' + data.y.label + ': ' + data.yMean.toFixed(data.y.decimals), { 'font-size': 11, fill: '#0f2040', 'font-weight': 700 });
+        svgEl('line', { x1: L, x2: W - R, y1: y(data.yMean), y2: y(data.yMean), stroke: '#000000', 'stroke-width': 2, 'stroke-dasharray': '6 4' }, svg);
+        svgText(svg, L + 6, Math.max(y(data.yMean) - 6, T + 12), 'Team avg ' + data.y.label + ': ' + data.yMean.toFixed(data.y.decimals), { 'font-size': 11, fill: '#000000', 'font-weight': 700 });
       }
       var teamList = Object.keys(data.teams).sort(function (a, b) {
         if (a === UNASSIGNED) return 1;

@@ -1,7 +1,7 @@
 /* Admin report viewer — extends styles.css tokens. */
 
 .admin-badge {
-  display: inline-block; background: var(--navy); color: #fff;
+  display: inline-block; background: var(--black); color: #fff;
   border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 800;
   letter-spacing: 0.06em; text-transform: uppercase;
 }
@@ -28,9 +28,9 @@
   padding: 28px 20px; text-align: center; background: var(--bg-alt);
   margin: 16px 0;
 }
-.dropzone.drag-over { border-color: var(--teal); background: #eaf6f3; }
+.dropzone.drag-over { border-color: var(--red); background: #fbeaea; }
 .admin-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
-.data-summary { font-weight: 700; color: var(--navy); margin-top: 14px; }
+.data-summary { font-weight: 700; color: var(--black); margin-top: 14px; }
 
 .filters-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .filter-group label { display: block; font-weight: 700; margin: 10px 0 6px; }
@@ -42,7 +42,7 @@
 }
 .filter-heading { display: block; font-weight: 700; margin: 10px 0 6px; }
 .toggle-row { display: flex; gap: 8px; align-items: center; font-weight: 500; margin: 8px 0; cursor: pointer; }
-.toggle-row input { width: 18px; height: 18px; accent-color: var(--teal); }
+.toggle-row input { width: 18px; height: 18px; accent-color: var(--red); }
 .toggle-row input:disabled + * { color: var(--muted); }
 .filter-athletes { grid-column: 1 / -1; }
 .athlete-actions { display: flex; gap: 8px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
@@ -56,17 +56,17 @@
 
 /* Report table */
 #print-area { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; margin-bottom: 20px; }
-.report-brand { font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; color: var(--teal); margin-bottom: 6px; }
+.report-brand { font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; color: var(--red); margin-bottom: 6px; }
 .report-head h2 { font-size: 1.8rem; margin-bottom: 4px; }
 .report-subtitle { color: var(--muted); margin-bottom: 4px; }
 .report-meta { color: var(--muted); font-size: 15px; margin-bottom: 4px; }
-.report-teamavg { font-size: 1.15rem; font-weight: 800; color: var(--navy); margin: 14px 0 18px; }
+.report-teamavg { font-size: 1.15rem; font-weight: 800; color: var(--black); margin: 14px 0 18px; }
 .table-wrap { overflow-x: auto; }
 #report-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 #report-table th, #report-table td { border: 1px solid var(--line); padding: 7px 9px; text-align: right; white-space: nowrap; }
 #report-table th:first-child, #report-table td:first-child,
 #report-table th:nth-child(2), #report-table td:nth-child(2) { text-align: left; }
-#report-table thead th { background: var(--navy); color: #fff; font-size: 13px; }
+#report-table thead th { background: var(--black); color: #fff; font-size: 13px; }
 #report-table tbody tr:nth-child(even) { background: var(--bg-alt); }
 #report-table td.num { font-variant-numeric: tabular-nums; }
 td.delta { font-weight: 800; }
@@ -76,7 +76,7 @@ td.delta-good { background: #e6f4ea; color: #137333; }
 td.delta-big { background: #fdecea; color: #7a271a; }
 td.delta-na { color: var(--muted); font-weight: 500; }
 #report-table tfoot td {
-  font-weight: 800; background: #eef2f7; border-top: 2px solid var(--navy);
+  font-weight: 800; background: #f6f5f3; border-top: 2px solid var(--black);
 }
 #report-table tfoot tr.avg-row td:first-child { text-align: left; }
 .report-foot { margin-top: 16px; font-size: 13px; color: var(--muted); }
@@ -92,7 +92,7 @@ td.delta-na { color: var(--muted); font-weight: 500; }
 .view-btn { border-radius: 0; }
 .view-btn:first-child { border-radius: 10px 0 0 10px; }
 .view-btn:last-child { border-radius: 0 10px 10px 0; }
-.view-btn.active { background: var(--navy); border-color: var(--navy); color: #fff !important; }
+.view-btn.active { background: var(--black); border-color: var(--black); color: #fff !important; }
 
 /* Analytics view */
 #analytics-area { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; margin-bottom: 20px; }
@@ -134,7 +134,7 @@ td.delta-na { color: var(--muted); font-weight: 500; }
   td.delta-bad, td.delta-big { background: #fdecea !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   td.delta-warn { background: #fff4d6 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   td.delta-good { background: #e6f4ea !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  #report-table thead th { background: var(--navy) !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  #report-table tfoot td { background: #eef2f7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #report-table thead th { background: var(--black) !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #report-table tfoot td { background: #f6f5f3 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .report-foot { font-size: 9pt; }
 }

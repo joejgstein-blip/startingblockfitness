@@ -9,7 +9,27 @@ Static site — no build step, no framework. Deployed on Vercel from this repo.
 - `index.html` — homepage: services, how testing works, who it's for, about, FAQ, contact
 - `styles.css` — all styling, responsive
 - `script.js` — mobile nav toggle only
+- `sbf_logo.webp` — the real Starting Block Fitness badge (circular, “STARTING BLOCK FITNESS / EST. 2022”, black SBF monogram with barbell, deep-red B). Used as the header logo, hero badge, footer logo, and favicon on both pages. Do not replace it with a redrawn or AI-generated mark.
 - `admin.html` + `admin.css` + `admin.js` — admin-only force-plate report viewer (see below)
+
+## Brand / palette
+
+Colours are sampled from `sbf_logo.webp` — nothing else:
+
+- Black `#000000` — headings, hero and CTA backgrounds, team-average chart lines
+- White `#FFFFFF` — page background, text on black
+- Deep red `#700310` — accent only: primary buttons, eyebrows, rules, links, focus states. Hover shade `#57020c`. Never a large red field.
+- Warm neutrals — body text `#1c1c1c`, secondary text `#5c5c5c`, hairlines `#e5e5e5`, alt-section background `#f6f5f3`
+- Radius `8px`; flat cards with thin borders, no heavy shadows, no gradients
+
+Design notes (to keep the site from reading as AI-generated): the palette
+and logo come from the real brand, not defaults; copy sticks to specifics
+already on the site (Est. 2022, NFL / college / elite high schools,
+48-hour reports) with no superlatives like “unlock your potential”;
+sections are not all the same weight — the hero and final CTA are black,
+services are plain cards, and the trust row is a plain divided list, not
+pill badges; chart team colours stay distinguishable (red, blue, amber,
+grey, green, brown, slate, orange) and are data colours, not brand colours.
 
 ## Deploy
 

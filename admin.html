@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Force-Plate Reports | Starting Block Fitness</title>
+  <meta name="description" content="Admin-only force-plate report viewer for Starting Block Fitness. Upload a Vald ForceDecks CSV, filter by date, exercise and athlete, and export a clean report to PDF.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="admin.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230f2040'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>SB</text></svg>">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header no-print">
+    <div class="container header-inner">
+      <a class="logo" href="index.html" aria-label="Starting Block Fitness — home">
+        <span class="logo-mark" aria-hidden="true">SB</span>
+        <span class="logo-text">Starting Block <span>Fitness</span></span>
+      </a>
+      <nav aria-label="Main navigation">
+        <button class="nav-toggle" aria-expanded="false" aria-controls="nav-menu">Menu</button>
+        <ul id="nav-menu" class="nav-menu">
+          <li><a href="index.html">← Back to site</a></li>
+          <li><span class="admin-badge">Admin</span></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="container admin-main">
+    <!-- Passcode gate -->
+    <section id="gate" class="admin-card" aria-labelledby="gate-title">
+      <p class="eyebrow">Admin only</p>
+      <h1 id="gate-title">Force-plate reports</h1>
+      <p>Enter the admin passcode to upload a ForceDecks export and view reports. Files are processed in your browser and are never uploaded to a server.</p>
+      <p id="gate-setup-warning" class="callout callout-warn" hidden>
+        <strong>Passcode not set yet.</strong> The site owner needs to set <code>ADMIN_PASSCODE</code> in <code>admin.js</code> before this page can be used.
+      </p>
+      <form id="gate-form">
+        <label for="gate-passcode">Admin passcode</label>
+        <input id="gate-passcode" type="password" autocomplete="off" required>
+        <p id="gate-error" class="form-error" role="alert" hidden>That passcode didn’t match. Try again.</p>
+        <button class="btn" type="submit">Unlock reports</button>
+      </form>
+      <p class="note">Security note: this is a client-side gate on a static site — it keeps the page out of casual view, but it is <strong>obscured, not secured</strong>. Real per-admin authentication needs a server (see README).</p>
+    </section>
+
+    <!-- App (hidden until unlocked) -->
+    <div id="app" hidden>
+      <section class="admin-card no-print" aria-labelledby="upload-title">
+        <h1 id="upload-title">Force-plate report viewer</h1>
+        <p>Upload a Vald ForceDecks CSV export. Everything is parsed in your browser — no file leaves this page.</p>
+
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload a ForceDecks CSV file">
+          <p><strong>Drop a ForceDecks CSV here</strong><br>or</p>
+          <label class="btn" for="file-input">Choose a CSV file</label>
+          <input id="file-input" type="file" accept=".csv,text/csv" hidden>
+          <p class="note" id="file-status">No file loaded yet.</p>
+        </div>
+
+        <div class="admin-actions">
+          <button id="sample-btn" class="btn btn-ghost" type="button">Load sample September data</button>
+          <button id="clear-btn" class="btn btn-ghost" type="button" disabled>Clear data</button>
+        </div>
+        <p class="note">Sample data is a de-identified demo: 5 athletes labelled Demo A–E, with values taken from the September export and names removed. It is for trying the filters only — upload the real export for real reports. The full athlete CSV is never bundled with this site.</p>
+        <p id="data-summary" class="data-summary" hidden></p>
+        <p id="upload-error" class="form-error" role="alert" hidden></p>
+      </section>
+
+      <section id="filters" class="admin-card no-print" aria-labelledby="filters-title" hidden>
+        <h2 id="filters-title">Filters</h2>
+        <div class="filters-grid">
+          <div class="filter-group">
+            <label for="start-date">Testing dates — from</label>
+            <input id="start-date" type="date">
+            <label for="end-date">to</label>
+            <input id="end-date" type="date">
+            <button id="reset-dates-btn" class="btn btn-ghost btn-small" type="button">All dates</button>
+          </div>
+
+          <div class="filter-group">
+            <label for="exercise-select">Exercise</label>
+            <select id="exercise-select"></select>
+            <p id="exercise-note" class="note"></p>
+          </div>
+
+          <div class="filter-group filter-athletes">
+            <label for="athlete-search">Athletes</label>
+            <input id="athlete-search" type="search" placeholder="Search athletes…" autocomplete="off">
+            <div class="athlete-actions">
+              <button id="select-all-btn" class="btn btn-ghost btn-small" type="button">Select all</button>
+              <button id="clear-athletes-btn" class="btn btn-ghost btn-small" type="button">Clear</button>
+              <span id="athlete-count" class="note"></span>
+            </div>
+            <div id="athlete-list" class="athlete-list" role="group" aria-label="Athletes"></div>
+            <p class="note">Groups: this export has no team/group column, so there is no group filter. Use the athlete checklist to build any group you want — select the athletes, print, then change the selection for the next group.</p>
+          </div>
+        </div>
+
+        <div class="admin-actions">
+          <button id="print-btn" class="btn" type="button">Export to PDF</button>
+          <p class="note print-hint">Export uses your browser’s print dialog — choose “Save as PDF”. The PDF shows the report only: title, exercise, dates, team average and the table.</p>
+        </div>
+      </section>
+
+      <!-- Printable report -->
+      <section id="print-area" aria-labelledby="report-title" hidden>
+        <div class="report-head">
+          <p class="report-brand">Starting Block Fitness — Force-Plate Testing</p>
+          <h2 id="report-title">Relative Power</h2>
+          <p id="report-subtitle" class="report-subtitle"></p>
+          <p id="report-meta" class="report-meta"></p>
+          <p id="report-teamavg" class="report-teamavg"></p>
+        </div>
+        <div class="table-wrap">
+          <table id="report-table">
+            <thead id="report-thead"></thead>
+            <tbody id="report-tbody"></tbody>
+          </table>
+        </div>
+        <div class="report-foot">
+          <p id="report-notes"></p>
+          <p class="report-footnote">Delta = (most recent − first) ÷ first × 100, within the selected dates. Colour: red ≤ −8% or ≥ +10%, amber −8% to −1%, green +1% to +9% — large swings are flagged red either way, as in the target sheet. Duplicate trials on the same date are averaged. Values are shown as recorded in the export; check the source file for any trial you want to verify.</p>
+          <p class="report-footnote" id="report-source"></p>
+        </div>
+      </section>
+
+      <p id="empty-state" class="admin-card no-print">Upload a CSV or load the sample data to see a report.</p>
+    </div>
+  </main>
+
+  <footer class="site-footer no-print">
+    <div class="container footer-inner">
+      <p><strong>Starting Block Fitness</strong><br>Performance testing &amp; training</p>
+      <p><a href="index.html">Back to site</a></p>
+      <p class="fine">Admin page — not indexed. Files are processed locally in your browser.</p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
